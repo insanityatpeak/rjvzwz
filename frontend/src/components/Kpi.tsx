@@ -8,8 +8,9 @@ export function Kpi({ label, value, hint }: { label: string; value: string; hint
   );
 }
 
-export function Status({ loading, error }: { loading: boolean; error: string | null }) {
-  if (error) return <div className="banner error">Could not load data: {error}</div>;
-  if (loading) return <div className="banner">Loading from Elexon… the first request can take several seconds.</div>;
+/** Banner for the first load or an error. On refetch the previous render stays (dimmed by the caller). */
+export function Status({ loading, error, hasData }: { loading: boolean; error: string | null; hasData: boolean }) {
+  if (error) return <div className="banner error" role="alert">Could not load data: {error}</div>;
+  if (loading && !hasData) return <div className="banner" role="status">Loading from Elexon… the first request can take several seconds.</div>;
   return null;
 }
