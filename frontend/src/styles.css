@@ -1,0 +1,29 @@
+:root { --bg: #f5f7fa; --card: #fff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --accent: #2563eb; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0b1220; --card: #111a2e; --text: #e5e7eb; --muted: #94a3b8; --border: #1f2a44; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+.app { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+h1 { margin: 0 0 4px; font-size: 1.6rem; }
+header p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+nav { display: flex; gap: 8px; margin: 20px 0 16px; }
+button, select, input { font: inherit; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+button { cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+nav button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+.controls { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+.note { color: var(--muted); font-size: 0.85rem; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi, .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.kpi-label { font-size: 0.8rem; color: var(--muted); }
+.kpi-value { font-size: 1.5rem; font-weight: 600; margin: 4px 0; }
+.kpi-hint { font-size: 0.75rem; color: var(--muted); }
+.card { margin-bottom: 16px; }
+.card h3 { margin: 0 0 12px; font-size: 1rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; }
+.grid .card { margin: 0; }
+.banner { padding: 12px 16px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); margin-bottom: 16px; color: var(--muted); }
+.banner.error { border-color: #dc2626; color: #dc2626; }
