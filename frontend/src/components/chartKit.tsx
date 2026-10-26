@@ -1,10 +1,10 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { fmtMW } from "../format";
 
 export const SERIES_1 = "var(--series-1)";
 export const SERIES_2 = "var(--series-2)";
 
-const axisTick = { fill: "var(--muted)", fontSize: 12 };
+const axisTick = { fill: "var(--text-2)", fontSize: 12 };
 
 // Recharts only renders its own component types as direct children, so these are props to spread, not wrappers.
 /** Recessive chrome shared by every chart: solid hairline grid, muted ticks, no tick marks. */
@@ -83,29 +83,37 @@ export function ChartCard({
   subtitle,
   table,
   children,
+  unit = "MW",
+  xLabel,
+  emptyMessage = "No paired forecast and actual data is available for this selection.",
 }: {
   title: string;
   subtitle?: string;
   table: TableData;
   children: ReactNode;
+  unit?: string;
+  xLabel?: string;
+  emptyMessage?: string;
 }) {
   const [showTable, setShowTable] = useState(false);
+  const titleId = useId();
   return (
-    <div className="card">
+    <section className="card" aria-labelledby={titleId}>
       <div className="card-head">
         <div>
-          <h3>{title}</h3>
+          <h3 id={titleId}>{title}</h3>
           {subtitle && <p className="sub">{subtitle}</p>}
         </div>
-        <button onClick={() => setShowTable((s) => !s)} aria-pressed={showTable}>
+        <button onClick={() => setShowTable((s) => !s)} aria-pressed={showTable} aria-label={`Show ${showTable ? "chart" : "table"} for ${title}`}>
           {showTable ? "Chart" : "Table"}
         </button>
       </div>
-      {showTable ? (
-        <div className="table-wrap">
+      {table.rows.length === 0 ? <div className="empty-state"><strong>No data to display</strong><p>{emptyMessage}</p></div> : showTable ? (
+        <div className="table-wrap" tabIndex={0} role="region" aria-label={`${title} data table`}>
           <table>
+            <caption className="sr-only">{title}{subtitle ? ` — ${subtitle}` : ""}</caption>
             <thead>
-              <tr>{table.head.map((h) => <th key={h}>{h}</th>)}</tr>
+              <tr>{table.head.map((h) => <th scope="col" key={h}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {table.rows.map((r, i) => (
@@ -115,8 +123,8 @@ export function ChartCard({
           </table>
         </div>
       ) : (
-        children
+        <><div className="axis-unit" aria-hidden="true">{unit}</div>{children}{xLabel && <p className="axis-caption">{xLabel}</p>}</>
       )}
-    </div>
+    </section>
   );
 }

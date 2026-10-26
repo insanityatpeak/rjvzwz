@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -23,7 +24,7 @@ def _check_range(start: date, end: date) -> None:
 
 
 def _load(start: date, end: date):
-    """Fetch forecasts published up to the end of the last delivery day and actuals covering the delivery days."""
+    """Fetch forecast publications and allow six hours for late actual publications, capped at now."""
     day_start, _ = analysis.day_bounds_utc(start)
     _, day_end = analysis.day_bounds_utc(end)
     pub_from = day_start - timedelta(days=3)
@@ -31,10 +32,15 @@ def _load(start: date, end: date):
     now = datetime.now(timezone.utc)
     try:
         forecasts = elexon_client.fetch_forecasts(pub_from, pub_to)
-        actuals = elexon_client.fetch_actuals(day_start, min(day_end, now))
+        actuals = elexon_client.fetch_actuals(day_start, min(day_end + timedelta(hours=6), now))
     except httpx.HTTPError as exc:
-        raise HTTPException(502, f"Elexon API error: {exc}") from exc
+        raise HTTPException(502, "Elexon API error: data could not be loaded.") from exc
     return forecasts, actuals
+
+
+def _response_meta(forecasts: list[dict], actuals: list[dict]) -> dict:
+    """Counts cover the fetched publication windows, including the actuals grace period."""
+    return {"skipped_records": getattr(forecasts, "skipped_records", 0) + getattr(actuals, "skipped_records", 0)}
 
 
 @app.get("/api/health")
@@ -57,18 +63,26 @@ def accuracy(
     _check_range(from_, to)
     forecasts, actuals = _load(from_, to)
     result = analysis.accuracy(forecasts, actuals, from_, to, cutoff_hour)
-    return {"cutoff_hour": cutoff_hour, "from": from_, "to": to, **result}
+    return {"cutoff_hour": cutoff_hour, "from": from_, "to": to, **result,
+            "meta": _response_meta(forecasts, actuals)}
 
 
 @app.get("/api/forecast")
-def forecast(day: date, cutoff_hour: int = Query(DEFAULT_CUTOFF_HOUR, ge=0, le=23)):
+def forecast(day: date, cutoff_hour: int = Query(DEFAULT_CUTOFF_HOUR, ge=0, le=23),
+             calibration: Literal["retrospective", "prior"] = "retrospective"):
     """The latest forecast available at the decision cutoff for one delivery day, with actuals if already known."""
     _check_range(day, day)
-    forecasts, actuals = _load(day, day)
+    calibration_end = day - timedelta(days=1) if calibration == "prior" else RANGE_END
+    forecasts, actuals = _load(RANGE_START, max(day, calibration_end))
     result = analysis.accuracy(forecasts, actuals, day, day, cutoff_hour)
+    band = analysis.calibrate_band(forecasts, actuals, RANGE_START, calibration_end, cutoff_hour,
+                                   minimum_days=3 if calibration == "prior" else 0)
     return {
         "day": day,
         "cutoff_hour": cutoff_hour,
         "cutoff_utc": analysis.cutoff_utc(day, cutoff_hour).isoformat(),
         "series": result["series"],
+        "calibration": calibration,
+        "meta": _response_meta(forecasts, actuals),
+        **band,
     }

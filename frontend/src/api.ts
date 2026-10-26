@@ -1,4 +1,4 @@
-import type { AccuracyResponse, ForecastResponse } from "./types";
+import type { AccuracyResponse, Calibration, ForecastResponse } from "./types";
 
 async function get<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
   const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
@@ -10,7 +10,7 @@ async function get<T>(path: string, params: Record<string, string | number> = {}
   return res.json();
 }
 
-export const getForecast = (day: string, cutoffHour: number) =>
-  get<ForecastResponse>("forecast", { day, cutoff_hour: cutoffHour });
+export const getForecast = (day: string, cutoffHour: number, calibration: Calibration = "retrospective") =>
+  get<ForecastResponse>("forecast", { day, cutoff_hour: cutoffHour, calibration });
 export const getAccuracy = (from: string, to: string, cutoffHour: number) =>
   get<AccuracyResponse>("accuracy", { from, to, cutoff_hour: cutoffHour });

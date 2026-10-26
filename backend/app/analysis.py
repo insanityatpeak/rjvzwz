@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
-from math import sqrt
+from math import ceil, sqrt
 from zoneinfo import ZoneInfo
 
 LONDON = ZoneInfo("Europe/London")
@@ -29,7 +29,7 @@ def day_bounds_utc(day: date) -> tuple[datetime, datetime]:
 
 
 def select_forecast(rows: list[dict], day: date, cutoff_hour: int) -> list[dict]:
-    """Per target hour of delivery day, the latest forecast published at or before the cutoff."""
+    """Latest publication at or before cutoff per target hour; last input row wins ties."""
     cutoff = cutoff_utc(day, cutoff_hour)
     start, end = day_bounds_utc(day)
     best: dict[datetime, tuple[datetime, dict]] = {}
@@ -37,38 +37,61 @@ def select_forecast(rows: list[dict], day: date, cutoff_hour: int) -> list[dict]
         target, published = parse_ts(r["startTime"]), parse_ts(r["publishTime"])
         if not (start <= target < end) or published > cutoff:
             continue
-        if target not in best or published > best[target][0]:
+        if target not in best or published >= best[target][0]:
             best[target] = (published, r)
     return [
-        {"startTime": _iso(t), "publishTime": _iso(p), "forecast": r["generation"]}
+        {"startTime": _iso(t), "publishTime": _iso(p), "forecast": r["generation"],
+         "forecast_age_hours": (cutoff - p).total_seconds() / 3600}
         for t, (p, r) in sorted(best.items())
     ]
 
 
-def hourly_actuals(rows: list[dict]) -> dict[datetime, float]:
-    """Average the 30-minute actuals into hourly means keyed by hour start (UTC)."""
+def hourly_actuals(rows: list[dict], *, with_coverage: bool = False):
+    """Average distinct half-hours (last row wins); optionally return complete-hour keys too.
+
+    Partial hours remain usable. Complete hours contain both the :00 and :30 intervals.
+    The default return value remains the hourly means mapping.
+    """
+    distinct = {parse_ts(r["startTime"]): r["generation"] for r in rows}
     buckets: dict[datetime, list[float]] = defaultdict(list)
-    for r in rows:
-        t = parse_ts(r["startTime"]).replace(minute=0, second=0, microsecond=0)
-        buckets[t].append(r["generation"])
-    return {t: sum(v) / len(v) for t, v in buckets.items()}
+    for target, generation in distinct.items():
+        t = target.replace(minute=0, second=0, microsecond=0)
+        buckets[t].append(generation)
+    means = {t: sum(v) / len(v) for t, v in buckets.items()}
+    complete = {t for t in buckets if t in distinct and t + timedelta(minutes=30) in distinct}
+    return (means, complete) if with_coverage else means
 
 
 def metrics(pairs: list[tuple[float, float]]) -> dict:
-    """pairs are (forecast, actual) in MW. error = forecast - actual."""
+    """Pairs are (forecast, actual) in MW; error = forecast - actual.
+
+    P90 uses nearest rank: the ceil(0.9 * n)-th smallest absolute error.
+    MAPE excludes zero actuals; WAPE is undefined when total actual generation is zero.
+    Over/under means retain their signs; exact matches belong to neither group.
+    """
     n = len(pairs)
     if n == 0:
-        return {"n": 0, "mae": None, "rmse": None, "mape": None, "bias": None, "p90_abs_error": None}
+        return {"n": 0, "mae": None, "rmse": None, "mape": None, "bias": None, "p90_abs_error": None,
+                "mape_n": 0, "wape": None, "over_forecast_share": None,
+                "mean_over_error": None, "mean_under_error": None}
     errs = [f - a for f, a in pairs]
     abs_errs = sorted(abs(e) for e in errs)
     pct = [abs(f - a) / a * 100 for f, a in pairs if a]
+    total_actual = sum(a for _, a in pairs)
+    over = [e for e in errs if e > 0]
+    under = [e for e in errs if e < 0]
     return {
         "n": n,
         "mae": sum(abs_errs) / n,
         "rmse": sqrt(sum(e * e for e in errs) / n),
         "mape": sum(pct) / len(pct) if pct else None,
         "bias": sum(errs) / n,
-        "p90_abs_error": abs_errs[min(n - 1, int(0.9 * n))],
+        "p90_abs_error": abs_errs[ceil(0.9 * n) - 1],
+        "mape_n": len(pct),
+        "wape": sum(abs_errs) / total_actual * 100 if total_actual else None,
+        "over_forecast_share": len(over) / n,
+        "mean_over_error": sum(over) / len(over) if over else None,
+        "mean_under_error": sum(under) / len(under) if under else None,
     }
 
 
@@ -88,7 +111,7 @@ def _horizon_bucket(hours: float) -> str | None:
 
 def accuracy(forecasts: list[dict], actuals: list[dict], start: date, end: date, cutoff_hour: int) -> dict:
     """Decision-time accuracy for delivery days start..end plus an all-lead-times horizon analysis."""
-    act = hourly_actuals(actuals)
+    act, complete = hourly_actuals(actuals, with_coverage=True)
     series, daily = [], []
     for day in _days(start, end):
         day_pairs = []
@@ -100,6 +123,8 @@ def accuracy(forecasts: list[dict], actuals: list[dict], start: date, end: date,
                 "startTime": f["startTime"], "publishTime": f["publishTime"], "forecast": f["forecast"],
                 "actual": actual, "error": None if actual is None else f["forecast"] - actual,
                 "lead_hours": lead,
+                "forecast_age_hours": f["forecast_age_hours"],
+                "actual_complete": target in complete,
             })
             if actual is not None:
                 day_pairs.append((f["forecast"], actual))
@@ -116,16 +141,44 @@ def accuracy(forecasts: list[dict], actuals: list[dict], start: date, end: date,
     window_start, _ = day_bounds_utc(start)
     _, window_end = day_bounds_utc(end)
     by_bucket: dict[str, list] = defaultdict(list)
+    bucket_hours: dict[str, set] = defaultdict(set)
+    horizon_excluded = 0
     for r in forecasts:
         target = parse_ts(r["startTime"])
-        if not (window_start <= target < window_end) or target not in act:
+        if not (window_start <= target < window_end):
             continue
         bucket = _horizon_bucket((target - parse_ts(r["publishTime"])).total_seconds() / 3600)
-        if bucket:
+        if bucket is None:
+            horizon_excluded += 1
+        elif target in act:
             by_bucket[bucket].append((r["generation"], act[target]))
+            bucket_hours[bucket].add(target)
     horizon = [
-        {"bucket": f"{lo}-{hi}h", **metrics(by_bucket[f"{lo}-{hi}h"])}
+        {"bucket": f"{lo}-{hi}h", **metrics(by_bucket[f"{lo}-{hi}h"]),
+         "distinct_hours": len(bucket_hours[f"{lo}-{hi}h"]),
+         "sparse": len(bucket_hours[f"{lo}-{hi}h"]) < 24}
         for lo, hi in HORIZON_BUCKETS if f"{lo}-{hi}h" in by_bucket
     ]
 
-    return {"overall": metrics(paired), "daily": daily, "hourly": hourly, "horizon": horizon, "series": series}
+    overall = {**metrics(paired), "coverage": {
+        "matched_hours": len(paired),
+        "missing_actual_hours": sum(s["actual"] is None for s in series),
+        "incomplete_actual_hours": sum(s["actual"] is not None and not s["actual_complete"] for s in series),
+    }}
+    return {"overall": overall, "daily": daily, "hourly": hourly, "horizon": horizon,
+            "horizon_excluded": horizon_excluded, "series": series}
+
+
+def calibrate_band(forecasts: list[dict], actuals: list[dict], start: date, end: date,
+                   cutoff_hour: int, minimum_days: int = 0) -> dict:
+    """Calibrate on decision-time errors; count only delivery days with matched hours."""
+    result = accuracy(forecasts, actuals, start, end, cutoff_hour)
+    days = sum(d["n"] > 0 for d in result["daily"])
+    p90 = result["overall"]["p90_abs_error"]
+    note = None
+    if days < minimum_days:
+        p90 = None
+        note = f"Prior-days calibration needs at least {minimum_days} matched delivery days; {days} available."
+    elif p90 is None:
+        note = "No matched forecast and actual hours are available for calibration."
+    return {"p90_abs_error": p90, "calibration_days": days, "calibration_note": note}
