@@ -22,8 +22,8 @@ def _check_range(start: date, end: date) -> None:
         raise HTTPException(400, f"dates must be within {RANGE_START} and {RANGE_END}")
 
 
-def _load(start: date, end: date, cutoff_hour: int):
-    """Fetch forecasts published up to the last cutoff and actuals covering the delivery days."""
+def _load(start: date, end: date):
+    """Fetch forecasts published up to the end of the last delivery day and actuals covering the delivery days."""
     day_start, _ = analysis.day_bounds_utc(start)
     _, day_end = analysis.day_bounds_utc(end)
     pub_from = day_start - timedelta(days=3)
@@ -55,7 +55,7 @@ def accuracy(
 ):
     """Accuracy of the decision-time forecast for delivery days from..to, with overall/daily/hourly/horizon stats."""
     _check_range(from_, to)
-    forecasts, actuals = _load(from_, to, cutoff_hour)
+    forecasts, actuals = _load(from_, to)
     result = analysis.accuracy(forecasts, actuals, from_, to, cutoff_hour)
     return {"cutoff_hour": cutoff_hour, "from": from_, "to": to, **result}
 
@@ -64,7 +64,7 @@ def accuracy(
 def forecast(day: date, cutoff_hour: int = Query(DEFAULT_CUTOFF_HOUR, ge=0, le=23)):
     """The latest forecast available at the decision cutoff for one delivery day, with actuals if already known."""
     _check_range(day, day)
-    forecasts, actuals = _load(day, day, cutoff_hour)
+    forecasts, actuals = _load(day, day)
     result = analysis.accuracy(forecasts, actuals, day, day, cutoff_hour)
     return {
         "day": day,

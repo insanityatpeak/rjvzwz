@@ -2,7 +2,7 @@ import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveCo
 import { getAccuracy } from "../api";
 import { errorHistogram, fmtHour, fmtMW, fmtPct, toCsv } from "../format";
 import { useAsync } from "../useAsync";
-import { ChartCard, SERIES_1, SERIES_2, gridProps, legendProps, tooltipProps, xAxisProps, yAxisProps } from "./chartKit";
+import { ChartCard, SERIES_1, SERIES_2, gridProps, legendProps, tooltipProps, xAxisProps, yAxisProps, yScale } from "./chartKit";
 import { Kpi, Status } from "./Kpi";
 
 interface Props {
@@ -58,7 +58,7 @@ export function AccuracyView({ cutoffHour, from, to }: Props) {
               <ComposedChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid {...gridProps} />
                 <XAxis {...xAxisProps} dataKey="t" minTickGap={70} />
-                <YAxis {...yAxisProps} />
+                <YAxis {...yAxisProps} {...yScale(series.flatMap((p) => [p.forecast, p.actual]))} />
                 <Tooltip {...tooltipProps()} />
                 <Legend {...legendProps()} />
                 <Line dataKey="forecast" name="Forecast" stroke={SERIES_1} dot={false} strokeWidth={2} activeDot={{ r: 5, stroke: "var(--surface)", strokeWidth: 2 }} />
@@ -79,7 +79,7 @@ export function AccuracyView({ cutoffHour, from, to }: Props) {
                 <BarChart data={data.daily.map((d) => ({ ...d, label: d.day.slice(8) }))} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid {...gridProps} />
                   <XAxis {...xAxisProps} dataKey="label" interval={1} />
-                  <YAxis {...yAxisProps} />
+                  <YAxis {...yAxisProps} {...yScale(data.daily.map((d) => d.mae))} />
                   <Tooltip {...tooltipProps()} />
                   <Bar dataKey="mae" name="MAE" fill={SERIES_1} radius={BAR_RADIUS} maxBarSize={20} />
                 </BarChart>
@@ -98,7 +98,7 @@ export function AccuracyView({ cutoffHour, from, to }: Props) {
                 <BarChart data={data.horizon} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2}>
                   <CartesianGrid {...gridProps} />
                   <XAxis {...xAxisProps} dataKey="bucket" />
-                  <YAxis {...yAxisProps} />
+                  <YAxis {...yAxisProps} {...yScale(data.horizon.flatMap((h) => [h.mae, h.rmse]))} />
                   <Tooltip {...tooltipProps()} />
                   <Legend {...legendProps("square")} />
                   <Bar dataKey="mae" name="MAE" fill={SERIES_1} radius={BAR_RADIUS} maxBarSize={18} />
@@ -116,7 +116,7 @@ export function AccuracyView({ cutoffHour, from, to }: Props) {
                 <BarChart data={hist} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid {...gridProps} />
                   <XAxis {...xAxisProps} dataKey="label" />
-                  <YAxis {...yAxisProps} tickFormatter={(v) => String(v)} width={36} />
+                  <YAxis {...yAxisProps} {...yScale(hist.map((b) => b.count))} tickFormatter={(v) => String(v)} width={36} />
                   <Tooltip {...tooltipProps("count")} />
                   <Bar dataKey="count" name="Hours" fill={SERIES_1} radius={BAR_RADIUS} maxBarSize={28} />
                 </BarChart>
@@ -135,7 +135,7 @@ export function AccuracyView({ cutoffHour, from, to }: Props) {
                 <BarChart data={data.hourly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid {...gridProps} />
                   <XAxis {...xAxisProps} dataKey="hour" />
-                  <YAxis {...yAxisProps} />
+                  <YAxis {...yAxisProps} {...yScale(data.hourly.map((h) => h.mae))} />
                   <Tooltip {...tooltipProps()} />
                   <Bar dataKey="mae" name="MAE" fill={SERIES_1} radius={BAR_RADIUS} maxBarSize={16} />
                 </BarChart>

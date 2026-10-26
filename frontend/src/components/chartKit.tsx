@@ -10,6 +10,16 @@ const axisTick = { fill: "var(--muted)", fontSize: 12 };
 /** Recessive chrome shared by every chart: solid hairline grid, muted ticks, no tick marks. */
 export const gridProps = { stroke: "var(--grid)", vertical: false } as const;
 export const xAxisProps = { tick: axisTick, tickLine: false, axisLine: { stroke: "var(--baseline)" } } as const;
+/** Zero-based y scale with round ticks (1/2/2.5/5 x 10^n), at most 6 intervals: 0, 5k, 10k... not 5.5k, 16.5k. */
+export function yScale(values: (number | null | undefined)[]): { domain: [number, number]; ticks: number[] } {
+  const max = Math.max(1, ...values.filter((v): v is number => v != null));
+  const mag = 10 ** Math.floor(Math.log10(max / 6));
+  const step = ([1, 2, 2.5, 5, 10].map((m) => m * mag).find((st) => Math.ceil(max / st) <= 6)) ?? 10 * mag;
+  const top = Math.ceil(max / step) * step;
+  const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => +(i * step).toFixed(6));
+  return { domain: [0, top], ticks };
+}
+
 export const yAxisProps = {
   tick: axisTick,
   tickLine: false,
