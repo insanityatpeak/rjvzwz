@@ -76,7 +76,8 @@ def forecast(day: date, cutoff_hour: int = Query(DEFAULT_CUTOFF_HOUR, ge=0, le=2
     forecasts, actuals = _load(RANGE_START, max(day, calibration_end))
     result = analysis.accuracy(forecasts, actuals, day, day, cutoff_hour)
     band = analysis.calibrate_band(forecasts, actuals, RANGE_START, calibration_end, cutoff_hour,
-                                   minimum_days=3 if calibration == "prior" else 0)
+                                   minimum_days=3 if calibration == "prior" else 0,
+                                   actuals_known_by=analysis.cutoff_utc(day, cutoff_hour) if calibration == "prior" else None)
     return {
         "day": day,
         "cutoff_hour": cutoff_hour,

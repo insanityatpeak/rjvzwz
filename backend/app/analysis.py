@@ -170,15 +170,26 @@ def accuracy(forecasts: list[dict], actuals: list[dict], start: date, end: date,
 
 
 def calibrate_band(forecasts: list[dict], actuals: list[dict], start: date, end: date,
-                   cutoff_hour: int, minimum_days: int = 0) -> dict:
-    """Calibrate on decision-time errors; count only delivery days with matched hours."""
+                   cutoff_hour: int, minimum_days: int = 0, actuals_known_by: datetime | None = None) -> dict:
+    """P90 of decision-time errors over delivery days start..end.
+
+    With actuals_known_by, only actuals published by then are used, so the band is what a buyer
+    could have computed at that moment. A delivery day counts only when every forecast hour of it
+    has an actual, so a day that is still being delivered does not count towards the minimum.
+    """
+    if actuals_known_by is not None:
+        actuals = [a for a in actuals
+                   if "publishTime" not in a or parse_ts(a["publishTime"]) <= actuals_known_by]
     result = accuracy(forecasts, actuals, start, end, cutoff_hour)
-    days = sum(d["n"] > 0 for d in result["daily"])
+    hours_per_day: dict[str, int] = defaultdict(int)
+    for point in result["series"]:
+        hours_per_day[parse_ts(point["startTime"]).astimezone(LONDON).date().isoformat()] += 1
+    days = sum(d["n"] > 0 and d["n"] == hours_per_day[str(d["day"])] for d in result["daily"])
     p90 = result["overall"]["p90_abs_error"]
     note = None
     if days < minimum_days:
         p90 = None
-        note = f"Prior-days calibration needs at least {minimum_days} matched delivery days; {days} available."
+        note = f"Prior-days calibration needs at least {minimum_days} fully matched delivery days; {days} available."
     elif p90 is None:
         note = "No matched forecast and actual hours are available for calibration."
     return {"p90_abs_error": p90, "calibration_days": days, "calibration_note": note}

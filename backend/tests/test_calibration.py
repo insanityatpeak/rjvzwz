@@ -69,3 +69,36 @@ def test_invalid_calibration_is_rejected_before_fetch(monkeypatch):
         pytest.fail("Invalid calibration must not fetch Elexon")
     monkeypatch.setattr(elexon_client, "fetch_forecasts", unexpected)
     assert client.get("/api/forecast", params={"day": "2026-01-15", "calibration": "future"}).status_code == 422
+
+
+def published_actuals(actuals):
+    """FUELHH publishes each half-hour 30 minutes after it starts."""
+    return [{**a, "publishTime": (datetime.fromisoformat(a["startTime"]) + timedelta(minutes=30)).isoformat()}
+            for a in actuals]
+
+
+def test_prior_calibration_uses_only_actuals_published_by_the_cutoff(monkeypatch):
+    forecasts, actuals = sample_days(5)
+    actuals = published_actuals(actuals)
+    monkeypatch.setattr(elexon_client, "fetch_forecasts", lambda s, e: forecasts)
+    monkeypatch.setattr(elexon_client, "fetch_actuals", lambda s, e: actuals)
+    # Cutoff is 09:00 on 4 Jan: the 4 Jan 12:00 actuals are not yet published, so only 1-3 Jan are known.
+    body = client.get("/api/forecast", params={"day": "2026-01-05", "calibration": "prior"}).json()
+    assert body["calibration_days"] == 3
+    assert body["p90_abs_error"] == 30
+    # A later cutoff on 4 Jan publishes the 12:00 actuals, so the same day then counts.
+    later = client.get("/api/forecast", params={"day": "2026-01-05", "calibration": "prior", "cutoff_hour": 14}).json()
+    assert later["calibration_days"] == 4
+
+
+def test_partly_known_day_does_not_count_towards_minimum_days():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    forecasts = [{"startTime": (start + timedelta(hours=h)).isoformat(),
+                  "publishTime": (start - timedelta(hours=20)).isoformat(), "generation": 110} for h in range(24)]
+    actuals = published_actuals([{"startTime": (start + timedelta(minutes=30 * i)).isoformat(), "generation": 100}
+                                 for i in range(48)])
+    known_by = datetime(2026, 1, 1, 9, tzinfo=timezone.utc)
+    result = analysis.calibrate_band(forecasts, actuals, date(2026, 1, 1), date(2026, 1, 1), 9, minimum_days=1,
+                                     actuals_known_by=known_by)
+    assert result["calibration_days"] == 0
+    assert result["p90_abs_error"] is None
