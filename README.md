@@ -2,7 +2,7 @@
 
 Web app for a day-ahead power buying team. It shows (1) the latest national wind generation forecast that was available when a buying decision had to be made, and (2) how accurate those forecasts were against actual generation. Data: Elexon BMRS only, `WINDFOR` (forecasts) and `FUELHH` with `fuelType=WIND` (actuals). Scope: delivery days 1-31 January 2026.
 
-**Live app:** _add Vercel URL here_
+**Live app:** https://rjvzwz.vercel.app
 
 ## How it works
 
